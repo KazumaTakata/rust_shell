@@ -3,7 +3,9 @@ use std::env;
 use std::io;
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::error::Error;
+use std::io::prelude::*;
 
 #[derive(Clone, Debug)]
 struct Token {
@@ -128,16 +130,22 @@ fn parse_simplecommand(lex: &mut Lex) -> CommandNode {
     return command_node;
 }
 
-fn eval_command(seq: &SeqCommandNode, env: &mut Env) {
+fn eval_command(seq: &SeqCommandNode, env: &mut Env) -> Option<String> {
     if seq.Type == "term" {
-        eval_simple_command(&seq.right.as_ref().unwrap(), env);
+        let stdout = eval_simple_command(&seq.right.as_ref().unwrap(), env, None);
+        return stdout;
     } else {
-        eval_command(&seq.left.as_ref().unwrap(), env);
-        eval_simple_command(&seq.right.as_ref().unwrap(), env);
+        let stdout = eval_command(&seq.left.as_ref().unwrap(), env);
+        let stdout2 = eval_simple_command(&seq.right.as_ref().unwrap(), env, stdout);
+        return stdout2;
     }
 }
 
-fn eval_simple_command(command: &CommandNode, env: &mut Env) {
+fn eval_simple_command(
+    command: &CommandNode,
+    env: &mut Env,
+    stdin: Option<String>,
+) -> Option<String> {
     match &command.command[..] {
         "cd" => {
             let home = env::var("HOME").unwrap();
@@ -151,23 +159,50 @@ fn eval_simple_command(command: &CommandNode, env: &mut Env) {
             env::set_current_dir(&root);
 
             env.cwd = env::current_dir().unwrap();
+            return None;
         }
 
         _ => {
-            let mut ex_comm = Command::new(&command.command[..]);
-            if command.args.len() > 1 {
-                for arg in &command.args {
-                    ex_comm.arg(&arg[..]);
+            if stdin != None {
+                let process = match Command::new(&command.command[..])
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .spawn()
+                {
+                    Err(why) => panic!("couldn't spawn wc: {}", why.description()),
+                    Ok(process) => process,
+                };
+                match process.stdin.unwrap().write_all(stdin.unwrap().as_bytes()) {
+                    Err(why) => panic!("couldn't write to wc stdin: {}", why.description()),
+                    Ok(_) => {},
                 }
-            }
 
-            let result = ex_comm.output();
-
-            match result {
-                Ok(output) => {
-                    io::stdout().write_all(&output.stdout).unwrap();
+                let mut s = String::new();
+                match process.stdout.unwrap().read_to_string(&mut s) {
+                    Err(why) => panic!("couldn't read wc stdout: {}", why.description()),
+                    Ok(_) => {
+                        return Some(s)
+                    }
                 }
-                Err(e) => {}
+            } else {
+                let mut ex_comm = Command::new(&command.command[..]);
+                if command.args.len() > 0 {
+                    for arg in &command.args {
+                        ex_comm.arg(&arg[..]);
+                    }
+                }
+
+                let result = ex_comm.output();
+
+                match result {
+                    Ok(output) => {
+                        let output_str = String::from_utf8(output.stdout).unwrap();
+                        return Some(output_str);
+                    }
+                    Err(e) => {
+                        return None;
+                    }
+                }
             }
         }
     }
@@ -236,9 +271,17 @@ fn main() {
         };
 
         let parsed = parse_command(&mut lex);
-        println!("{:?}", parsed);
+//        println!("{:?}", parsed);
         //        parsed.print();
-        eval_command(&parsed, &mut env);
+        let output = eval_command(&parsed, &mut env);
+        match output {
+            None => {}
+            Some(x) => {
+                print!("{}", x);
+                io::stdout().flush().unwrap();
+
+            }
+        }
 
         user_input.clear();
     }
