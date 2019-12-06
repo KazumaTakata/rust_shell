@@ -17,7 +17,7 @@ struct Lex {
 }
 
 struct Env {
-    cwd: std::path::PathBuf
+    cwd: std::path::PathBuf,
 }
 
 impl Lex {
@@ -33,45 +33,72 @@ impl Lex {
         self.pos += 1;
     }
 }
-
+#[derive(Debug)]
 struct CommandNode {
     command: String,
     args: Vec<String>,
 }
-
-struct PipedCommandNode {
-    commands: Vec<CommandNode>,
+#[derive(Debug)]
+struct SeqCommandNode {
+    Type: String,
+    left: Option<Box<SeqCommandNode>>,
+    right: Option<Box<CommandNode>>,
 }
 
-impl PipedCommandNode {
-    fn print(&self) {
-        for command in &self.commands {
-            command.print();
-        }
-    }
-}
+//impl SeqCommandNode {
+//fn print(&self) {
+//if self.Type == "term" {
+//let refe = self.right.as_ref();
+//refe.unwrap().print();
+//} else {
+//self.left.as_ref().unwrap().print();
+//self.right.as_ref().unwrap().print();
+//}
+//}
+//}
 
-impl CommandNode {
-    fn print(&self) {
-        print!("{} ", self.command);
-        for arg in &self.args {
-            print!("{} ", arg);
-        }
-        print!("\n");
-        io::stdout().flush().unwrap();
-    }
-}
+//impl CommandNode {
+//fn print(&self) {
+//print!("{} ", self.command);
+//for arg in &self.args {
+//print!("{} ", arg);
+//}
+//print!("\n");
+//io::stdout().flush().unwrap();
+//}
+/*}*/
 
-fn parse_command(lex: &mut Lex) -> PipedCommandNode {
-    let mut piped = PipedCommandNode {
-        commands: Vec::new(),
+fn parse_command(lex: &mut Lex) -> SeqCommandNode {
+    let mut seq = SeqCommandNode {
+        Type: "".to_string(),
+        left: None,
+        right: None,
     };
     let mut cur_token = lex.get_cur_token();
 
+    let mut first = true;
     while cur_token.Type == "PIPE" || lex.pos == 0 {
         let parsed = parse_simplecommand(lex);
-        piped.commands.push(parsed);
 
+        if first {
+            let mut term_seq = SeqCommandNode {
+                Type: "term".to_string(),
+                right: Some(Box::new(parsed)),
+                left: None,
+            };
+            seq = term_seq;
+            first = false;
+        } else {
+            let mut new_seq = SeqCommandNode {
+                Type: "".to_string(),
+                left: None,
+                right: None,
+            };
+            new_seq.left = Some(Box::new(seq));
+            seq = new_seq;
+
+            seq.right = Some(Box::new(parsed));
+        }
         if lex.in_bound() {
             cur_token = lex.get_cur_token();
             lex.advance_token();
@@ -80,7 +107,7 @@ fn parse_command(lex: &mut Lex) -> PipedCommandNode {
         }
     }
 
-    return piped;
+    return seq;
 }
 
 fn parse_simplecommand(lex: &mut Lex) -> CommandNode {
@@ -101,14 +128,16 @@ fn parse_simplecommand(lex: &mut Lex) -> CommandNode {
     return command_node;
 }
 
-fn eval_command(piped: &PipedCommandNode, env: &mut Env) {
-    for command in &piped.commands {
-        eval_simple_command(&command, env);
+fn eval_command(seq: &SeqCommandNode, env: &mut Env) {
+    if seq.Type == "term" {
+        eval_simple_command(&seq.right.as_ref().unwrap(), env);
+    } else {
+        eval_command(&seq.left.as_ref().unwrap(), env);
+        eval_simple_command(&seq.right.as_ref().unwrap(), env);
     }
-
 }
 
-fn eval_simple_command(command: &CommandNode,env: &mut Env) {
+fn eval_simple_command(command: &CommandNode, env: &mut Env) {
     match &command.command[..] {
         "cd" => {
             let home = env::var("HOME").unwrap();
@@ -149,18 +178,19 @@ fn main() {
 
     let user = env::var("USER").unwrap();
     let home = env::var("HOME").unwrap();
-    let mut env = Env{cwd: env::current_dir().unwrap()};
+    let mut env = Env {
+        cwd: env::current_dir().unwrap(),
+    };
 
-
-    let lexgroup_and_regex = vec![
-        vec!["BUILTIN", r"export\s+|cd\s+"],
-        vec!["WORD", r"[a-zA-Z_]\w*"],
-        vec!["EQUAL", "="],
-        vec!["VARIABLE", r"\$[a-zA-Z_]\w*"],
-        vec!["DOLLSIGN", r"\$"],
-        vec!["LPAREN", r"\("],
-        vec!["RPAREN", r"\)"],
-        vec!["PIPE", r"\|"],
+    let lexgroup_and_regex = [
+        ["BUILTIN", r"export\s+|cd\s+"],
+        ["WORD", r"[a-zA-Z_]\w*"],
+        ["EQUAL", "="],
+        ["VARIABLE", r"\$[a-zA-Z_]\w*"],
+        ["DOLLSIGN", r"\$"],
+        ["LPAREN", r"\("],
+        ["RPAREN", r"\)"],
+        ["PIPE", r"\|"],
     ];
 
     let mut regex_string: String = "".to_owned();
@@ -206,7 +236,8 @@ fn main() {
         };
 
         let parsed = parse_command(&mut lex);
-      //  parsed.print();
+        println!("{:?}", parsed);
+        //        parsed.print();
         eval_command(&parsed, &mut env);
 
         user_input.clear();
