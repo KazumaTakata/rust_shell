@@ -171,18 +171,23 @@ fn eval_simple_command(
                     }
                 }
                 let process = match ex_comm.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
-                    Err(why) => panic!("couldn't spawn wc: {}", why.description()),
-                    Ok(process) => process,
+                    Err(why) => None,
+                    Ok(process) => Some(process),
                 };
-                match process.stdin.unwrap().write_all(stdin.unwrap().as_bytes()) {
-                    Err(why) => panic!("couldn't write to wc stdin: {}", why.description()),
-                    Ok(_) => {}
-                }
+                match process {
+                    None => {return None}
+                    Some(process) => {
+                        match process.stdin.unwrap().write_all(stdin.unwrap().as_bytes()) {
+                            Err(why) => panic!("couldn't write to wc stdin: {}", why.description()),
+                            Ok(_) => {}
+                        }
 
-                let mut s = String::new();
-                match process.stdout.unwrap().read_to_string(&mut s) {
-                    Err(why) => panic!("couldn't read wc stdout: {}", why.description()),
-                    Ok(_) => return Some(s),
+                        let mut s = String::new();
+                        match process.stdout.unwrap().read_to_string(&mut s) {
+                            Err(why) => panic!("couldn't read wc stdout: {}", why.description()),
+                            Ok(_) => return Some(s),
+                        }
+                    }
                 }
             } else {
                 let mut ex_comm = Command::new(&command.command[..]);
@@ -226,7 +231,7 @@ fn main() {
 
     let lexgroup_and_regex = [
         ["BUILTIN", r"export\s+|cd\s+"],
-        ["WORD", r"[a-zA-Z_]\w*"],
+        ["WORD", r"[a-zA-Z_.][\w.]*"],
         ["EQUAL", "="],
         ["VARIABLE", r"\$[a-zA-Z_]\w*"],
         ["DOLLSIGN", r"\$"],
@@ -251,7 +256,7 @@ fn main() {
 
     loop {
         print!(
-            "\x1b[0;35m{}\x1b[0m\x1b[0;32m:{}\x1b[0m\u{1F498} \u{1F63A} ",
+            "\x1b[0;35m{}\x1b[0m\x1b[0;32m@{}\x1b[0m$ ",
             user,
             env.cwd.display()
         );
