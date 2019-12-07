@@ -191,18 +191,25 @@ fn eval_simple_command(
                         ex_comm.arg(&arg[..]);
                     }
                 }
-
-                let result = ex_comm.output();
-
-                match result {
-                    Ok(output) => {
-                        let output_str = String::from_utf8(output.stdout).unwrap();
-                        return Some(output_str);
-                    }
-                    Err(e) => {
+                let process = ex_comm.spawn();
+                match process {
+                    Err(why) => {
                         return None;
                     }
-                }
+                    Ok(process) => {
+                        let result = process.wait_with_output();
+
+                        match result {
+                            Ok(output) => {
+                                let output_str = String::from_utf8(output.stdout).unwrap();
+                                return Some(output_str);
+                            }
+                            Err(e) => {
+                                return None;
+                            }
+                        }
+                    }
+                };
             }
         }
     }
@@ -243,7 +250,11 @@ fn main() {
     let re = Regex::new(&regex_string[..]).unwrap();
 
     loop {
-        print!("\x1b[0;35m{}\x1b[0m\x1b[0;32m:{}\x1b[0m\u{1F498} \u{1F63A} ", user, env.cwd.display());
+        print!(
+            "\x1b[0;35m{}\x1b[0m\x1b[0;32m:{}\x1b[0m\u{1F498} \u{1F63A} ",
+            user,
+            env.cwd.display()
+        );
         io::stdout().flush().unwrap();
         io::stdin()
             .read_line(&mut user_input)
