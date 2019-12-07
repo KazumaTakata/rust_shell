@@ -1,11 +1,11 @@
 use regex::Regex;
 use std::env;
+use std::error::Error;
 use std::io;
+use std::io::prelude::*;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::error::Error;
-use std::io::prelude::*;
 
 #[derive(Clone, Debug)]
 struct Token {
@@ -164,25 +164,25 @@ fn eval_simple_command(
 
         _ => {
             if stdin != None {
-                let process = match Command::new(&command.command[..])
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .spawn()
-                {
+                let mut ex_comm = Command::new(&command.command[..]);
+                if command.args.len() > 0 {
+                    for arg in &command.args {
+                        ex_comm.arg(&arg[..]);
+                    }
+                }
+                let process = match ex_comm.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn() {
                     Err(why) => panic!("couldn't spawn wc: {}", why.description()),
                     Ok(process) => process,
                 };
                 match process.stdin.unwrap().write_all(stdin.unwrap().as_bytes()) {
                     Err(why) => panic!("couldn't write to wc stdin: {}", why.description()),
-                    Ok(_) => {},
+                    Ok(_) => {}
                 }
 
                 let mut s = String::new();
                 match process.stdout.unwrap().read_to_string(&mut s) {
                     Err(why) => panic!("couldn't read wc stdout: {}", why.description()),
-                    Ok(_) => {
-                        return Some(s)
-                    }
+                    Ok(_) => return Some(s),
                 }
             } else {
                 let mut ex_comm = Command::new(&command.command[..]);
@@ -243,7 +243,7 @@ fn main() {
     let re = Regex::new(&regex_string[..]).unwrap();
 
     loop {
-        print!("{}:{}$", user, env.cwd.display());
+        print!("\x1b[0;35m{}\x1b[0m\x1b[0;32m:{}\x1b[0m\u{1F498} \u{1F63A} ", user, env.cwd.display());
         io::stdout().flush().unwrap();
         io::stdin()
             .read_line(&mut user_input)
@@ -265,21 +265,22 @@ fn main() {
                 }
             }
         }
-        let mut lex = Lex {
-            tokens: tokens,
-            pos: 0,
-        };
+        if tokens.len() > 0 {
+            let mut lex = Lex {
+                tokens: tokens,
+                pos: 0,
+            };
 
-        let parsed = parse_command(&mut lex);
-//        println!("{:?}", parsed);
-        //        parsed.print();
-        let output = eval_command(&parsed, &mut env);
-        match output {
-            None => {}
-            Some(x) => {
-                print!("{}", x);
-                io::stdout().flush().unwrap();
-
+            let parsed = parse_command(&mut lex);
+            //        println!("{:?}", parsed);
+            //        parsed.print();
+            let output = eval_command(&parsed, &mut env);
+            match output {
+                None => {}
+                Some(x) => {
+                    print!("{}", x);
+                    io::stdout().flush().unwrap();
+                }
             }
         }
 
